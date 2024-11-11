@@ -1,0 +1,130 @@
+private List<ComparisonEntity> handleDocuments(Map<String, NLPCompareDocument> documents, BatchEntity batch, String documentKey) {
+    List<ComparisonEntity> comparisonEntities = new ArrayList<>();
+    List<String> mapKeys = new ArrayList<>(documents.keySet());
+    Collections.sort(mapKeys);
+
+    for (String mapKey : mapKeys) {
+        NLPCompareDocument nlpCompareDocument = documents.get(mapKey);
+        if (nlpCompareDocument == null || nlpCompareDocument.getResults() == null) {
+            continue;
+        }
+
+        ComparisonEntity comparison = createComparisonEntity(nlpCompareDocument, documentKey, batch);
+        List<ComparisonResultEntity> comparisonResults;
+
+        switch (documentKey) {
+            case "Invoice":
+                comparisonResults = handleInvoiceSpecific(mapKey, nlpCompareDocument);
+                break;
+            case "Present Document":
+            case "Draft":
+                if (Arrays.asList("compare_7", "compare_5").contains(mapKey)) {
+                    System.out.println("HI");
+                    comparisonResults = new ArrayList<>(); // Placeholder if additional logic is needed
+                } else {
+                    comparisonResults = createComparisonResults(nlpCompareDocument);
+                }
+                break;
+            case "Bill of lading":
+                comparisonResults = createComparisonResults(nlpCompareDocument);
+                break;
+            default:
+                comparisonResults = new ArrayList<>();
+                break;
+        }
+
+        comparison.setComparisonResults(comparisonResults);
+        comparisonEntities.add(comparison);
+    }
+    return comparisonEntities;
+}
+
+private ComparisonEntity createComparisonEntity(NLPCompareDocument nlpCompareDocument, String documentKey, BatchEntity batch) {
+    return ComparisonEntity.builder()
+            .title(nlpCompareDocument.getContent())
+            .key(documentKey)
+            .batch(batch)
+            .build();
+}
+
+private List<ComparisonResultEntity> handleInvoiceSpecific(String mapKey, NLPCompareDocument nlpCompareDocument) {
+    List<ComparisonResultEntity> comparisonResults = new ArrayList<>();
+    if (mapKey.equals("compare_3")) {
+        NLPResultEachCompare nlpResult = nlpCompareDocument.getResults().get(1);
+        comparisonResults.add(CompareInvoiceUtils.InvoiceCompare3.instance().createComparisonResult(nlpResult));
+    } else if (mapKey.equals("compare_4")) {
+        NLPResultEachCompare nlpResult = nlpCompareDocument.getResults().get(0);
+        comparisonResults.add(CompareInvoiceUtils.InvoiceCompare4.instance().createComparisonResult(nlpResult));
+    } else {
+        comparisonResults.addAll(createComparisonResults(nlpCompareDocument));
+    }
+    return comparisonResults;
+}
+
+private List<ComparisonResultEntity> createComparisonResults(NLPCompareDocument nlpCompareDocument) {
+    List<ComparisonResultEntity> comparisonResults = new ArrayList<>();
+
+    for (NLPResultEachCompare nlpResult : nlpCompareDocument.getResults()) {
+        ComparisonResultEntity comparisonResult = ComparisonResultEntity.builder()
+                .title(nlpResult.getDescription())
+                .status(nlpResult.getMessage())
+                .build();
+
+        List<ComparisonResultReasonEntity> reasonEntities = createReasonEntities(nlpResult);
+        List<ComparisonResultInputEntity> inputEntities = createInputEntities(nlpResult);
+
+        comparisonResult.setComparisonReasonResults(reasonEntities);
+        comparisonResult.setComparisonInputResults(inputEntities);
+        comparisonResults.add(comparisonResult);
+    }
+    return comparisonResults;
+}
+
+private List<ComparisonResultReasonEntity> createReasonEntities(NLPResultEachCompare nlpResult) {
+    List<ComparisonResultReasonEntity> reasonEntities = new ArrayList<>();
+    for (NLPReason nlpReason : nlpResult.getReasons()) {
+        reasonEntities.add(ComparisonResultReasonEntity.builder()
+                .compareOn(nlpReason.getCompareOn())
+                .lawIds(nlpReason.getLawIds())
+                .reasonId(nlpReason.getReasonId())
+                .build());
+    }
+    return reasonEntities;
+}
+
+private List<ComparisonResultInputEntity> createInputEntities(NLPResultEachCompare nlpResult) {
+    List<ComparisonResultInputEntity> inputEntities = new ArrayList<>();
+
+    nlpResult.getInput().forEach((key, val) -> {
+        ComparisonResultInputEntity inputEntity = ComparisonResultInputEntity.builder()
+                .title(val.getFieldName())
+                .build();
+        ComparisonResultInputValueEntity inputValue = ComparisonResultInputValueEntity.builder()
+                .type("text")
+                .key(key)
+                .prefixValue("")
+                .build();
+        inputValue.setValue(val.getFieldValue());
+        inputEntity.setComparisonResultInputValues(Collections.singletonList(inputValue));
+        inputEntities.add(inputEntity);
+    });
+
+    return inputEntities;
+}
+
+// Call these refactored methods for each document type
+private List<ComparisonEntity> handleInvoice(Map<String, NLPCompareDocument> invoice, BatchEntity batch) {
+    return handleDocuments(invoice, batch, "Invoice");
+}
+
+private List<ComparisonEntity> handleBillOfLading(Map<String, NLPCompareDocument> billOfLading, BatchEntity batch) {
+    return handleDocuments(billOfLading, batch, "Bill of lading");
+}
+
+private List<ComparisonEntity> handlePresent(Map<String, NLPCompareDocument> presentDocument, BatchEntity batch) {
+    return handleDocuments(presentDocument, batch, "Present Document");
+}
+
+private List<ComparisonEntity> handleDraft(Map<String, NLPCompareDocument> draftDocument, BatchEntity batch) {
+    return handleDocuments(draftDocument, batch, "Draft");
+}
